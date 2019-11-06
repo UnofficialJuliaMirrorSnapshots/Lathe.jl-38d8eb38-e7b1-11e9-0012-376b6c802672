@@ -13,8 +13,13 @@ Thank you for your forks!
 #[deps]
 DataFrames.jl
 Random.jl
+FlatBuffers
+FileIO
+Serialization
 ================================#
 module Lathe
+using FileIO
+using JLD2
 using DataFrames
 using Random
 #================
@@ -70,16 +75,6 @@ function correlationcoeff(x,y)
     if n != yl
         throw(ArgumentError("The array shape does not match!"))
     end
-#    sx = std(x)
-#    sy = std(y)
-#    x̄ = mean(x)
-#    ȳ = mean(x)
-#    [i = (i-x̄) / sx for i in x]
-#    [i = (i-ȳ) / sy for i in y]
-#    n1 = n-1
-#    mult = x .* y
-#    sq = sum(mult)
-#    corrcoff = sq / n1
     xy = x .* y
     sx = sum(x)
     sy = sum(y)
@@ -212,9 +207,16 @@ function wilcoxsr(var1,var2)
 
 end
 #<---- Binomial Distribution ---->
-function binomialdist(positives,negatives,zeros)
+function binomialdist(positives,size)
     # p = n! / x!(n-x!)*π^x*(1-π)^N-x
-    n = positives + negatives + zeros
+    n = size
+    x = positives
+    factn = factorial(n)
+    factx = factorial(x)
+    p = factn / factx * (n-factx) * π ^ x * (1-π)^n - x
+    println("P - ",p)
+    pxr = factn / (factx * (n-x)) * p^p * (1-p)^(n-x)
+    return(pxr)
 end
 #<---- Sign Test ---->
 function sign(var1,var2)
@@ -231,11 +233,9 @@ function sign(var1,var2)
             negatives.append(i)
         end
     end
-    totalnegs = length(negatives)
     totalpos = length(positives)
-    totalzer = length(zeros)
     totallen = length(sets)
-    ans = binomialdist(positives,negatives,zeros)
+    ans = binomialdist(positives,totallen)
     return(ans)
 end
 #<---- F-Test---->
@@ -294,9 +294,21 @@ function r2(actual,pred)
     rsq = rsq * 100
     return(rsq)
 end
-function binomialdistribution(actual,pred)
+# <---- Mean Squared Error ---->
+function mse(actual,pred)
+    l = length(actual)
+    lp = length(pred)
+    if l != lp
+        throw(ArgumentError("The array shape does not match!"))
+    end
+    result = actual-pred
+    result = result .^ 2
+    maeunf = Lathe.stats.mean(result)
+    return(maeunf)
+end
+# <---- Binomial Accuracy ---->
+function binomialaccuracy(actual,pred)
     # p = n! / x!(n-x!)*π^x*(1-π)^N-x
-    Lathe.stats.binomialdist(pos,neg,tot)
 end
 # --- Get Permutation ---
 function getPermutation(model)
@@ -474,6 +486,9 @@ function predict(m,x)
     if typeof(m) == ExponentialScalar
         y_pred = pred_exponentialscalar(m,x)
     end
+    if typeof(m) == MultipleLinearRegression
+        y_pred = pred_multiplelinearregression(m,x)
+    end
     return(y_pred)
 end
 # The help function:
@@ -522,10 +537,8 @@ mutable struct RegressionTree
     divisionsize
 end
 #----  Callback
+# WIP <TODO>
 function pred_regressiontree(m,xt)
-    # x = q1(r(floor:q1)) |x2 = q2(r(q1:μ)) |x3 = q3(r(q2:q3)) |x4 q4(r(q3:cieling))
-    # y' = q1(x * (a / x)) | μ(x * (a / x2)) | q3(x * (a / x3) | q4(x * (a / x4))
-    # Original 4 quartile math ^^
         x = m.x
         y = m.y
         xtcopy = xt
@@ -654,6 +667,39 @@ function pred_isotonicregression(m,xt)
     end
 end
 #==
+Multiple
+    Linear
+        Regression
+==#
+mutable struct MultipleLinearRegression
+    x
+    y
+end
+function pred_multiplelinearregression(m,xt)
+    if length(m.x) != length(xt)
+        throw(ArgumentError("Bad Feature Shape |
+        Training Features are not equal!",))
+    end
+    y_pred = []
+    y = m.y
+    x = m.x
+    for z in xt
+        m = LinearRegression(z,y)
+        for b in z
+            predavg = []
+            for i in x
+                for b in i
+                    pred = predict(m,b)
+                    append!(predavg,pred)
+                end
+            end
+        mn = Lathe.stats.mean(predavg)
+    end
+        append!(y_pred,mn)
+    end
+    return(y_pred)
+end
+#==
 Linear
     Regression
 ==#
@@ -688,13 +734,8 @@ function pred_LinearRegression(m,xt)
     a = (((Σy) * (Σx2)) - ((Σx * (Σxy)))) / ((n * (Σx2))-(Σx^2))
     # Calculate b
     b = ((n*(Σxy)) - (Σx * Σy)) / ((n * (Σx2)) - (Σx ^ 2))
-    # Empty array:
-    ypred = []
-    for i in xt
-        yp = a+(b*i)
-        append!(ypred,yp)
-    end
-    return(ypred)
+    [i = a+(b*i) for i in xt]
+    return(xt)
 end
 #==
 Linear
@@ -777,7 +818,20 @@ function pred_logisticregression(m,xt)
 
 end
 #==
-Linear
+Binomial
+    Distribution
+==#
+mutable struct BinomialDistribution
+    x
+    y
+end
+function pred_binomialdist(m,xt)
+    if length(m.x) != length(m.y)
+        throw(ArgumentError("The array shape does not match!"))
+    end
+end
+#==
+Exponential
     Scalar
 ==#
 mutable struct ExponentialScalar
@@ -787,24 +841,71 @@ end
 function pred_exponentialscalar(m,xt)
     x = m.x
     y = m.y
-    xdiv1,x = Lathe.preprocess.SortSplit(x)
-    xdiv2,x = Lathe.preprocess.SortSplit(x)
-    xdiv3,x = Lathe.preprocess.SortSplit(x)
-    xdiv4,x = Lathe.preprocess.SortSplit(x)
-    ydiv1,y = Lathe.preprocess.SortSplit(y)
-    ydiv2,y = Lathe.preprocess.SortSplit(y)
-    ydiv3,y = Lathe.preprocess.SortSplit(y)
-    ydiv4,y = Lathe.preprocess.SortSplit(y)
+    at = 0.25
+    xdiv1,x = Lathe.preprocess.SortSplit(x,.05)
+    xdiv2,x = Lathe.preprocess.SortSplit(x,.05)
+    xdiv3,x = Lathe.preprocess.SortSplit(x,.05)
+    xdiv4,x = Lathe.preprocess.SortSplit(x,.05)
+    ydiv1,y = Lathe.preprocess.SortSplit(y,.05)
+    ydiv2,y = Lathe.preprocess.SortSplit(y,.05)
+    ydiv3,y = Lathe.preprocess.SortSplit(y,.05)
+    ydiv4,y = Lathe.preprocess.SortSplit(y,.05)
     scalarlist1 = ydiv1 ./ xdiv1
     scalarlist2 = ydiv2 ./ xdiv2
     scalarlist3 = ydiv3 ./ xdiv3
     scalarlist4 = ydiv3 ./ xdiv3
-    scalarlist5 = y ./ x
+    xdiv1,x = Lathe.preprocess.SortSplit(x,.05)
+    xdiv2,x = Lathe.preprocess.SortSplit(x,.05)
+    xdiv3,x = Lathe.preprocess.SortSplit(x,.05)
+    xdiv4,x = Lathe.preprocess.SortSplit(x,.05)
+    ydiv1,y = Lathe.preprocess.SortSplit(y,.05)
+    ydiv2,y = Lathe.preprocess.SortSplit(y,.05)
+    ydiv3,y = Lathe.preprocess.SortSplit(y,.05)
+    ydiv4,y = Lathe.preprocess.SortSplit(y,.05)
+    scalarlist6 = ydiv1 ./ xdiv1
+    scalarlist7 = ydiv2 ./ xdiv2
+    scalarlist8 = ydiv3 ./ xdiv3
+    scalarlist9 = ydiv3 ./ xdiv3
+    xdiv1,x = Lathe.preprocess.SortSplit(x,.05)
+    xdiv2,x = Lathe.preprocess.SortSplit(x,.05)
+    xdiv3,x = Lathe.preprocess.SortSplit(x,.05)
+    xdiv4,x = Lathe.preprocess.SortSplit(x,.05)
+    ydiv1,y = Lathe.preprocess.SortSplit(y,.05)
+    ydiv2,y = Lathe.preprocess.SortSplit(y,.05)
+    ydiv3,y = Lathe.preprocess.SortSplit(y,.05)
+    ydiv4,y = Lathe.preprocess.SortSplit(y,.05)
+    scalarlist10 = ydiv1 ./ xdiv1
+    scalarlist11 = ydiv2 ./ xdiv2
+    scalarlist12 = ydiv3 ./ xdiv3
+    scalarlist13 = ydiv3 ./ xdiv3
+    xdiv1,x = Lathe.preprocess.SortSplit(x,.05)
+    xdiv2,x = Lathe.preprocess.SortSplit(x,.05)
+    xdiv3,x = Lathe.preprocess.SortSplit(x,.05)
+    xdiv4,x = Lathe.preprocess.SortSplit(x,.05)
+    ydiv1,y = Lathe.preprocess.SortSplit(y,.05)
+    ydiv2,y = Lathe.preprocess.SortSplit(y,.05)
+    ydiv3,y = Lathe.preprocess.SortSplit(y,.05)
+    ydiv4,y = Lathe.preprocess.SortSplit(y,.05)
+    scalarlist14 = ydiv1 ./ xdiv1
+    scalarlist15 = ydiv2 ./ xdiv2
+    scalarlist16 = ydiv3 ./ xdiv3
+    scalarlist17 = ydiv3 ./ xdiv3
+    xdiv1,x = Lathe.preprocess.SortSplit(x,.05)
+    xdiv2,x = Lathe.preprocess.SortSplit(x,.05)
+    xdiv3,x = Lathe.preprocess.SortSplit(x,.05)
+    xdiv4,x = Lathe.preprocess.SortSplit(x,.05)
+    ydiv1,y = Lathe.preprocess.SortSplit(y,.05)
+    ydiv2,y = Lathe.preprocess.SortSplit(y,.05)
+    ydiv3,y = Lathe.preprocess.SortSplit(y,.05)
+    ydiv4,y = Lathe.preprocess.SortSplit(y,.05)
+    scalarlist18 = ydiv1 ./ xdiv1
+    scalarlist19 = ydiv2 ./ xdiv2
+    scalarlist20 = y ./ x
     # Now we sortsplit the x train
-    xtdiv1,xt2 = Lathe.preprocess.SortSplit(xt)
-    xtdiv2,xt2 = Lathe.preprocess.SortSplit(xt2)
-    xtdiv3,xt2 = Lathe.preprocess.SortSplit(xt2)
-    xtdiv4,null = Lathe.preprocess.SortSplit(xt2)
+    xtdiv1,xt2 = Lathe.preprocess.SortSplit(xt,.05)
+    xtdiv2,xt2 = Lathe.preprocess.SortSplit(xt2,.05)
+    xtdiv3,xt2 = Lathe.preprocess.SortSplit(xt2,.05)
+    xtdiv4,null = Lathe.preprocess.SortSplit(xt2,.05)
     range1 = minimum(xtdiv1):maximum(xtdiv1)
     range2 = minimum(xtdiv2):maximum(xtdiv2)
     range3 = minimum(xtdiv3):maximum(xtdiv3)
@@ -830,7 +931,7 @@ function pred_exponentialscalar(m,xt)
             append!(returnlist,res)
         else
             predlist = []
-            res = i * rand(scalarlist5)
+            res = i * rand(scalarlist20)
             append!(returnlist,res)
         end
     end
@@ -868,64 +969,42 @@ end
 Pipeline
     Module
 ================#
-module Pipelines
-#=================================================
-#
+module pipelines
+
 # Note to future self, or other programmer:
 # It is not necessary to store these as constructors!
 # They can just be strings, and use the model's X and Y!
 using Lathe
 mutable struct Pipeline
     model
-    categoricalenc
-    contenc
-    imputer
+    methods
+    setting
 end
-mutable struct fitpipeline
-    pipeline
-    x
-    y
-end
-function pipelinebuilder()
-    println("== Lathe.JL Pipeline Builder ==")
-    println("- Select a model -")
-    m = readline()
-    if m == "LinearRegression"
-        model = Lathe.models.LinearRegression
-    else
-        println(m," is not a valid model.")
-        println("Pipeline is continuing without a model.")
-        model = false
-    end
-    println("- Select a categorical encoder -")
-    cat = readline()
-    println(m," is your selected categorical encoder")
-    println("- Select a continous encoder -")
-    m = readline()
-    println(m," is your selected Continous Encoder")
-    println("- Select an imputer -")
-    imputer = false
-    pipl = Pipeline(model,cat,m,imputer)
-    println("Your new pipeline is officially created!")
-    return(pipl)
-end
-function fitpipeline(Pipeline,x,y)
-    pipl = fitpipeline(Pipeline,x,y)
-end
-function predict(fitpipeline,xt)
-    if typeof(fitpipeline) == Pipeline
-        throw(ArgumentError("This pipeline is not yet fitted!"))
-    end
-    # Preprocessing
-    if fitpipeline.Pipeline.contenc == "Rescalar"
-        fitpipeline.x = Lathe.preprocess.Rescalar(fitpipeline.x)
-    end
-    if typeof(fitpipeline.Pipeline.model) == Lathe.models.LinearRegression
-        model = Lathe.models.LinearRegression(fitpipeline.x,fitpipeline.y)
-        ypr = Lathe.models.predict(model,xt)
+function pipe_predict(pipe,xt)
+    """ Takes a fit pipeline, and an X and predicts. """
+    if pipe.setting == :CON
+        model = pipe.model
+        if typeof(pipe.methods) != Array
+            [b = pipe.methods(b) for b in model.x]
+            [b = pipe.methods(b) for b in xt]
+        else
+            for i in methods
+                [b = i(b) for b in model.x]
+                [b = i(b) for b in xt]
+            end
+        end
+        y_pred = Lathe.models.predict(model,xt)
+        return(y_pred)
+    elseif pipe.setting == :CAT
+
+    elseif pipe.setting == :MIX
     end
 end
-=============================================#
+function save(pipe,filename)
+    if typeof(pipe.model) == LinearRegression
+        save(filename, Dict("m" => typeof(m),"x" => m.x,"y" => m.y))
+    end
+end
 #----------------------------------------------
 end
 #==
