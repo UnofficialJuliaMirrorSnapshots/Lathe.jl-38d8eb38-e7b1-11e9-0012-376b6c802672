@@ -13,15 +13,16 @@ Thank you for your forks!
 #[deps]
 DataFrames.jl
 Random.jl
-JLD2
-FileIO
 ================================#
-""" A module for easy, fast, ML inside of Julia."""
 module Lathe
-using FileIO
-using JLD2
+# <------- PARTS ----->
+include("nlp.jl")
+include("pipelines.jl")
+# <------- PARTS ----->
+# <------- DEPS ----->
 using DataFrames
 using Random
+# <------- DEPS ----->
 #================
 Stats
     Module
@@ -29,20 +30,17 @@ Stats
 module stats
 #<----Mean---->
 function mean(array)
-    """Returns the mean of an array"""
     observations = length(array)
     average = sum(array)/observations
     return(average)
 end
 #<----Mode---->
 function mode(array)
-    """Returns the most common value in an array"""
     m = findmax(array)
     return(m)
 end
 #<----Variance---->
 function variance(array)
-    """Returns the variance of an array"""
     me = mean(array)
     sq = sum(array) - me
     squared_mean = sq ^ 2
@@ -50,7 +48,6 @@ function variance(array)
 end
 #<----Confidence Intervals---->
 function confiints(data, confidence=.95)
-    """ Returns confidence intervals based on a confidence level."""
     mean = mean(data)
     std = std(data)
     stderr = standarderror(data)
@@ -59,7 +56,6 @@ function confiints(data, confidence=.95)
 end
 #<----Standard Error---->
 function standarderror(data)
-    """ Returns the standard of error"""
     std = std(data)
     sample = length(data)
     ste = (std/sqrt(sample))
@@ -67,7 +63,6 @@ function standarderror(data)
 end
 #<----Standard Deviation---->
 function std(array3)
-    """Returns the standard deviation of an array"""
     m = mean(array3)
     [i = (i-m) ^ 2 for i in array3]
     m = mean(array3)
@@ -76,7 +71,6 @@ function std(array3)
 end
 #<---- Correlation Coefficient --->
 function correlationcoeff(x,y)
-    """ Returns the coefficient of correlation (r) """
     n = length(x)
     yl = length(y)
     if n != yl
@@ -95,12 +89,13 @@ function correlationcoeff(x,y)
 end
 #<----Z score---->
 function z(array)
-
+    x̄ = mean(array)
+    σ = std(array)
+    return map(x -> (x - x̄) / σ, array)
 end
 #<----Quartiles---->
 # - First
 function firstquar(array)
-    """Returns the first quartile"""
     m = median(array)
     q15 = array / m
     q1 = array / m
@@ -108,20 +103,17 @@ function firstquar(array)
 end
 # - Second(median)
 function secondquar(array)
-    """ Returns the second quartile (Median) """
     m = median(array)
     return(m)
 end
 # - Third
 function thirdquar(array)
-    """ Returns the Third Quartile """
     q = median(array)
     q = q * 1.5
 end
 # <---- Rank ---->
 function getranks(array,rev = false)
-    """ Returns an in order array of the ranks """
-    sortedar = sort!(array,rev=rev)
+    sortedar = sort(array,rev=rev)
     num = 1
     list = []
     for i in sortedar
@@ -133,7 +125,6 @@ end
 #-------Inferential-----------__________
 #<----Inferential Summary---->
 function inf_sum(data,grdata)
-    """ Spits out a quick summary of inferential statistics. """
     #Doing our calculations
     t = independent_t(data,grdata)
     f = f_test(data,grdata)
@@ -164,7 +155,6 @@ end
 #<----T Test---->
 # - Independent
 function independent_t(sample,general)
-    """ Returns a probability from a T-Test """
     sampmean = mean(sample)
     genmean = mean(general)
     samples = length(sample)
@@ -178,16 +168,19 @@ function independent_t(sample,general)
 end
 # - Paired
 function paired_t(var1,var2)
-
+    d = var1 .- var2
+    d̄ = mean(x)
 end
 #<---- Correlations ---->
 # - Spearman
 function spearman(var1,var2)
-
+    rgX = getranks(var1)
+    rgY = getranks(var2)
+    ρ = rgX*rgY / (std(rgX)*std(rgY))
+    return(ρ)
 end
 # - Pearson
 function pearson(x,y)
-    """ Returns a correlation from a pearson correlation test. """
     sx = std(x)
     sy = std(y)
     x̄ = mean(x)
@@ -202,11 +195,23 @@ function pearson(x,y)
 end
 # <---- Chi Distribution --->
 function chidist(x,e)
-
+# it is tough to calculate -> is it really needed?
+    # A little less necessary, as its certainly not the most useful,
+    # But this stats library could serve as a foundation for models that
+    # Utilize Chi-Distributions, and although I wouldn't say having
+    # A function to do so is urgent, It definitely would be cool,
+    # Rather than an end user having to add another package just
+    # To do one or two things, if you know what I mean.
+    # But certainly there are other more important things to get through
+    # Before 1.0, and I wouldn't consider any of these statistics incredibly
+    # Necessary, but the template is there for what I want to include,
+    # So people adding the module now can kindof know what to expect.
+    # So hopefully that answers your question!
 end
 #<---- Chi-Square ---->
 function chisq(var1,var2)
-
+    chistat(obs, exp) = (obs - exp)^2/exp
+    return chistat.(x, e) |> sum
 end
 #<---- ANOVA ---->
 function anova(var1,var2)
@@ -220,22 +225,18 @@ end
 function wilcoxsr(var1,var2)
 
 end
-#<---- Binomial Distribution ---->
-function binomialdist(positives,size)
-    """ Performs factorial binomialdistribution with positives and n"""
+#<---- Binomial Probability ---->
+function binomialprob(positives,size)
     # p = n! / x!(n-x!)*π^x*(1-π)^N-x
     n = size
     x = positives
     factn = factorial(n)
     factx = factorial(x)
-    p = factn / factx * (n-factx) * π ^ x * (1-π)^n - x
-    println("P - ",p)
-    pxr = factn / (factx * (n-x)) * p^p * (1-p)^(n-x)
-    return(pxr)
+    nx = factn / (factx * (n-x))
+    return(nx)
 end
 #<---- Sign Test ---->
 function sign(var1,var2)
-    """ Returns probability based on signs and binomial distribution. """
     sets = var1 .- var2
     positives = []
     negatives = []
@@ -251,12 +252,11 @@ function sign(var1,var2)
     end
     totalpos = length(positives)
     totallen = length(sets)
-    ans = binomialdist(positives,totallen)
+    ans = binomialprob(positives,totallen)
     return(ans)
 end
 #<---- F-Test---->
 function f_test(sample,general)
-    """ Returns probability from an F test """
     totvariance = variance(general)
     sampvar = variance(sample)
     f =  sampvar / totvariance
@@ -266,12 +266,10 @@ end
 #<----Bayes Theorem---->
 #P = prob, A = prior, B = Evidence,
 function bay_ther(p,a,b)
-    """ Returns bayesian probability """
     psterior = (p*(b|a) * p*(a)) / (p*b)
     return(psterior)
 end
 function cond_prob(p,a,b)
-    """ Performs Bayesian Conditional Probability"""
     psterior = bay_ther(p,a,b)
     cond = p*(a|b)
     return(cond)
@@ -289,7 +287,6 @@ module validate
 using Lathe
 ## <---- Mean Absolute Error ---->
 function mae(actual,pred)
-    """ Returns mean absolute error between two arrays."""
     l = length(actual)
     lp = length(pred)
     if l != lp
@@ -304,7 +301,6 @@ function mae(actual,pred)
 end
 # <---- R Squared ---->
 function r2(actual,pred)
-    """ Returns the correlation coefficient of regression (r^2)"""
     l = length(actual)
     lp = length(pred)
     if l != lp
@@ -314,23 +310,6 @@ function r2(actual,pred)
     rsq = r^2
     rsq = rsq * 100
     return(rsq)
-end
-# <---- Mean Squared Error ---->
-function mse(actual,pred)
-    """ Returns mean squared error"""
-    l = length(actual)
-    lp = length(pred)
-    if l != lp
-        throw(ArgumentError("The array shape does not match!"))
-    end
-    result = actual-pred
-    result = result .^ 2
-    maeunf = Lathe.stats.mean(result)
-    return(maeunf)
-end
-# <---- Binomial Accuracy ---->
-function binomialaccuracy(actual,pred)
-    # p = n! / x!(n-x!)*π^x*(1-π)^N-x
 end
 # --- Get Permutation ---
 function getPermutation(model)
@@ -353,7 +332,6 @@ Generalized
 ===============#
 # Train-Test-Split-----
 function TrainTestSplit(df,at = 0.75)
-    """ Train Test Splits a DataFrame"""
     sample = randsubseq(1:size(df,1), at)
     trainingset = df[sample, :]
     notsample = [i for i in 1:size(df,1) if isempty(searchsorted(sample, i))]
@@ -362,7 +340,6 @@ function TrainTestSplit(df,at = 0.75)
 end
 # Array-Split ----------
 function ArraySplit(data, at = 0.7)
-    """ Train Test Splits an Array"""
     n = length(data)
     idx = Random.shuffle(1:n)
     train_idx = view(idx, 1:floor(Int, at*n))
@@ -372,7 +349,6 @@ function ArraySplit(data, at = 0.7)
 end
 # Sort-Split -------------
 function SortSplit(data, at = 0.25, rev=false)
-    """ Sorts and Splits an Array """
   n = length(data)
   sort!(data, rev=rev)  # Sort in-place
   train_idx = view(data, 1:floor(Int, at*n))
@@ -381,7 +357,6 @@ function SortSplit(data, at = 0.25, rev=false)
 end
 # Unshuffled Split ----
 function Uniform_Split(data, at = 0.7)
-    """ Splits without shuffling!"""
     n = length(data)
     idx = data
     train_idx = view(idx, 1:floor(Int, at*n))
@@ -446,8 +421,17 @@ Categorical
     Encoding
 ==========#
 # <---- One Hot Encoder ---->
-function OneHotEncode(array)
-
+function OneHotEncode(array::Number)
+    flatarr = Iterators.flatten(array)
+    len = size(flatarr, 2)
+    poslen = size(unique(flatarr), 2)
+    out = Array{Number}(undef, len, poslen)
+    for i in 1:len
+        el = flatarr[i]
+        idx = findall(x -> x == el, flatarr |> unique)[1][2]
+        out[i, idx] = 1
+    end
+    return(out)
 end
 #-----------------------------
 end
@@ -509,9 +493,6 @@ function predict(m,x)
     if typeof(m) == LogisticRegression
         y_pred = pred_logisticregression(m,x)
     end
-    if typeof(m) == ExponentialScalar
-        y_pred = pred_exponentialscalar(m,x)
-    end
     if typeof(m) == MultipleLinearRegression
         y_pred = pred_multiplelinearregression(m,x)
     end
@@ -563,8 +544,10 @@ mutable struct RegressionTree
     divisionsize
 end
 #----  Callback
-# WIP <TODO>
 function pred_regressiontree(m,xt)
+    # x = q1(r(floor:q1)) |x2 = q2(r(q1:μ)) |x3 = q3(r(q2:q3)) |x4 q4(r(q3:cieling))
+    # y' = q1(x * (a / x)) | μ(x * (a / x2)) | q3(x * (a / x3) | q4(x * (a / x4))
+    # Original 4 quartile math ^^
         x = m.x
         y = m.y
         xtcopy = xt
@@ -707,23 +690,48 @@ function pred_multiplelinearregression(m,xt)
         Training Features are not equal!",))
     end
     y_pred = []
-    y = m.y
-    x = m.x
     for z in xt
-        m = LinearRegression(z,y)
-        for b in z
-            predavg = []
-            for i in x
-                for b in i
-                    pred = predict(m,b)
-                    append!(predavg,pred)
-                end
+        r = 0
+        predavg = []
+        for i in z
+            m = LinearRegression(z,m.y)
+            pred = predict(m,z)
+            append!(predavg,pred)
+        end
+        append!(y_pred,predavg)
+    end
+    len = length(y_pred[1])
+    yprl = length(y_pred)
+    pr = []
+    numbers = collect(1:yprl)
+    oddsonly = numbers[numbers .% 2 .== 0]
+    oddsonly = filter!(e->e≠0,oddsonly)
+    if yprl in oddsonly
+        truonly = true
+    else
+        truonly = false
+    end
+        for z in oddsonly
+            cp = z + 1
+            for i in 1:len
+                s = z[i]
+                v = cp[i]
+                d = Lathe.stats.mean([s,v])
+                append!(pr,d)
             end
-        mn = Lathe.stats.mean(predavg)
-    end
-        append!(y_pred,mn)
-    end
-    return(y_pred)
+        end
+        if truonly == true
+            fn = maximum(oddsonly)
+            z = fn
+            cp = fn + 1
+            for i in 1:len
+                s = z[i]
+                v = cp[i]
+                d = Lathe.stats.mean([s,v])
+                append!(pr,d)
+            end
+        end
+    return(pr)
 end
 #==
 Linear
@@ -761,12 +769,7 @@ function pred_LinearRegression(m,xt)
     # Calculate b
     b = ((n*(Σxy)) - (Σx * Σy)) / ((n * (Σx2)) - (Σx ^ 2))
     [i = a+(b*i) for i in xt]
-    y_pred = []
-    for i in xt
-        z = a+(b*i)
-        append!(y_pred,z)
-    end
-    return(y_pred)
+    return(xt)
 end
 #==
 Linear
@@ -848,126 +851,6 @@ function pred_logisticregression(m,xt)
     end
 
 end
-#==
-Binomial
-    Distribution
-==#
-mutable struct BinomialDistribution
-    x
-    y
-end
-function pred_binomialdist(m,xt)
-    if length(m.x) != length(m.y)
-        throw(ArgumentError("The array shape does not match!"))
-    end
-end
-#==
-Exponential
-    Scalar
-==#
-mutable struct ExponentialScalar
-    x
-    y
-end
-function pred_exponentialscalar(m,xt)
-    x = m.x
-    y = m.y
-    at = 0.25
-    xdiv1,x = Lathe.preprocess.SortSplit(x,.05)
-    xdiv2,x = Lathe.preprocess.SortSplit(x,.05)
-    xdiv3,x = Lathe.preprocess.SortSplit(x,.05)
-    xdiv4,x = Lathe.preprocess.SortSplit(x,.05)
-    ydiv1,y = Lathe.preprocess.SortSplit(y,.05)
-    ydiv2,y = Lathe.preprocess.SortSplit(y,.05)
-    ydiv3,y = Lathe.preprocess.SortSplit(y,.05)
-    ydiv4,y = Lathe.preprocess.SortSplit(y,.05)
-    scalarlist1 = ydiv1 ./ xdiv1
-    scalarlist2 = ydiv2 ./ xdiv2
-    scalarlist3 = ydiv3 ./ xdiv3
-    scalarlist4 = ydiv3 ./ xdiv3
-    xdiv1,x = Lathe.preprocess.SortSplit(x,.05)
-    xdiv2,x = Lathe.preprocess.SortSplit(x,.05)
-    xdiv3,x = Lathe.preprocess.SortSplit(x,.05)
-    xdiv4,x = Lathe.preprocess.SortSplit(x,.05)
-    ydiv1,y = Lathe.preprocess.SortSplit(y,.05)
-    ydiv2,y = Lathe.preprocess.SortSplit(y,.05)
-    ydiv3,y = Lathe.preprocess.SortSplit(y,.05)
-    ydiv4,y = Lathe.preprocess.SortSplit(y,.05)
-    scalarlist6 = ydiv1 ./ xdiv1
-    scalarlist7 = ydiv2 ./ xdiv2
-    scalarlist8 = ydiv3 ./ xdiv3
-    scalarlist9 = ydiv3 ./ xdiv3
-    xdiv1,x = Lathe.preprocess.SortSplit(x,.05)
-    xdiv2,x = Lathe.preprocess.SortSplit(x,.05)
-    xdiv3,x = Lathe.preprocess.SortSplit(x,.05)
-    xdiv4,x = Lathe.preprocess.SortSplit(x,.05)
-    ydiv1,y = Lathe.preprocess.SortSplit(y,.05)
-    ydiv2,y = Lathe.preprocess.SortSplit(y,.05)
-    ydiv3,y = Lathe.preprocess.SortSplit(y,.05)
-    ydiv4,y = Lathe.preprocess.SortSplit(y,.05)
-    scalarlist10 = ydiv1 ./ xdiv1
-    scalarlist11 = ydiv2 ./ xdiv2
-    scalarlist12 = ydiv3 ./ xdiv3
-    scalarlist13 = ydiv3 ./ xdiv3
-    xdiv1,x = Lathe.preprocess.SortSplit(x,.05)
-    xdiv2,x = Lathe.preprocess.SortSplit(x,.05)
-    xdiv3,x = Lathe.preprocess.SortSplit(x,.05)
-    xdiv4,x = Lathe.preprocess.SortSplit(x,.05)
-    ydiv1,y = Lathe.preprocess.SortSplit(y,.05)
-    ydiv2,y = Lathe.preprocess.SortSplit(y,.05)
-    ydiv3,y = Lathe.preprocess.SortSplit(y,.05)
-    ydiv4,y = Lathe.preprocess.SortSplit(y,.05)
-    scalarlist14 = ydiv1 ./ xdiv1
-    scalarlist15 = ydiv2 ./ xdiv2
-    scalarlist16 = ydiv3 ./ xdiv3
-    scalarlist17 = ydiv3 ./ xdiv3
-    xdiv1,x = Lathe.preprocess.SortSplit(x,.05)
-    xdiv2,x = Lathe.preprocess.SortSplit(x,.05)
-    xdiv3,x = Lathe.preprocess.SortSplit(x,.05)
-    xdiv4,x = Lathe.preprocess.SortSplit(x,.05)
-    ydiv1,y = Lathe.preprocess.SortSplit(y,.05)
-    ydiv2,y = Lathe.preprocess.SortSplit(y,.05)
-    ydiv3,y = Lathe.preprocess.SortSplit(y,.05)
-    ydiv4,y = Lathe.preprocess.SortSplit(y,.05)
-    scalarlist18 = ydiv1 ./ xdiv1
-    scalarlist19 = ydiv2 ./ xdiv2
-    scalarlist20 = y ./ x
-    # Now we sortsplit the x train
-    xtdiv1,xt2 = Lathe.preprocess.SortSplit(xt,.05)
-    xtdiv2,xt2 = Lathe.preprocess.SortSplit(xt2,.05)
-    xtdiv3,xt2 = Lathe.preprocess.SortSplit(xt2,.05)
-    xtdiv4,null = Lathe.preprocess.SortSplit(xt2,.05)
-    range1 = minimum(xtdiv1):maximum(xtdiv1)
-    range2 = minimum(xtdiv2):maximum(xtdiv2)
-    range3 = minimum(xtdiv3):maximum(xtdiv3)
-    range4 = minimum(xtdiv4):maximum(xtdiv4)
-    range5 = minimum(null):maximum(null)
-    returnlist = []
-    for i in xt
-        if i in range1
-            res = i * rand(scalarlist1)
-            append!(returnlist,res)
-        elseif i in range2
-            predlist = []
-            res = i * rand(scalarlist2)
-            append!(returnlist,res)
-
-        elseif i in range3
-            predlist = []
-            res = i * rand(scalarlist3)
-            append!(returnlist,res)
-        elseif i in range4
-            predlist = []
-            res = i * rand(scalarlist4)
-            append!(returnlist,res)
-        else
-            predlist = []
-            res = i * rand(scalarlist20)
-            append!(returnlist,res)
-        end
-    end
-    return(returnlist)
-end
 #======================================================================
 =======================================================================
             CATEGORICAL MODELS             CATEGORICAL MODELS
@@ -994,48 +877,6 @@ function pred_catbaseline(m,xt)
 
 end
 #
-#----------------------------------------------
-end
-#================
-Pipeline
-    Module
-================#
-module pipelines
-
-# Note to future self, or other programmer:
-# It is not necessary to store these as constructors!
-# They can just be strings, and use the model's X and Y!
-using Lathe
-mutable struct Pipeline
-    model
-    methods
-    setting
-end
-function pipe_predict(pipe,xt)
-    """ Takes a fit pipeline, and an X and predicts. """
-    if pipe.setting == :CON
-        model = pipe.model
-        if typeof(pipe.methods) != Array
-            [b = pipe.methods(b) for b in model.x]
-            [b = pipe.methods(b) for b in xt]
-        else
-            for i in methods
-                [b = i(b) for b in model.x]
-                [b = i(b) for b in xt]
-            end
-        end
-        y_pred = Lathe.models.predict(model,xt)
-        return(y_pred)
-    elseif pipe.setting == :CAT
-
-    elseif pipe.setting == :MIX
-    end
-end
-function save(pipe,filename)
-    if typeof(pipe.model) == LinearRegression
-        save(filename, Dict("m" => typeof(m),"x" => m.x,"y" => m.y))
-    end
-end
 #----------------------------------------------
 end
 #==
